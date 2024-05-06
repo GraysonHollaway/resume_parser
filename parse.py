@@ -1,57 +1,96 @@
-import re
-import requests
+import tkinter as tk
+from tkinter import filedialog
+import PyPDF2
+import docx
 from collections import Counter
-from bs4 import BeautifulSoup
-from PyPDF2 import PdfReader
+import re
+import nltk
+from nltk.corpus import stopwords
+
+nltk.download('stopwords')
 
 def extract_text_from_pdf(pdf_path):
-    text = ''
+    text = ""
     with open(pdf_path, 'rb') as file:
-        pdf_reader = PdfReader(file)
-        for page in pdf_reader.pages:
+        reader = PyPDF2.PdfReader(file)
+        for page_num in range(len(reader.pages)):
+            page = reader.pages[page_num]
             text += page.extract_text()
     return text
 
-def extract_keywords(text):
-    words = re.findall(r'\b\w+\b', text.lower())
-    keyword_counter = Counter(words)
-    top_keywords = keyword_counter.most_common(10)
-    return [keyword[0] for keyword in top_keywords]
+def extract_text_from_docx(docx_path):
+    doc = docx.Document(docx_path)
+    full_text = []
+    for para in doc.paragraphs:
+        full_text.append(para.text)
+    return '\n'.join(full_text)
 
-def fetch_text_from_url(url):
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    # Find the <div> element with the specified class and id
-    job_post_div = soup.find('div', class_='jobs-box__html-content jobs-description-content__text t-14 t-normal jobs-description-content__text--stretch', id='job-details')
-    if job_post_div:
-        # Extract text from the div
-        job_post_text = job_post_div.get_text(separator='\n')
-        return job_post_text
+def parse_job_description(job_description):
+    # Tokenize the job description and remove punctuation
+    words = re.findall(r'\b\w+\b', job_description.lower())
+    return Counter(words)
+
+def match_words(job_text, document_text):
+    job_word_count = parse_job_description(job_text)
+    document_word_count = Counter(re.findall(r'\b\w+\b', document_text.lower()))
+    
+    # Get English stop words
+    stop_words = set(stopwords.words('english'))
+
+    matched_words = {}
+    for word, count in document_word_count.items():
+        if word not in stop_words and word in job_word_count:
+            matched_words[word] = count
+    
+    return matched_words
+
+def browse_file():
+    filename = filedialog.askopenfilename()
+    entry.delete(0, tk.END)
+    entry.insert(0, filename)
+
+def analyze_document():
+    file_path = entry.get()
+    if file_path.endswith('.pdf'):
+        document_text = extract_text_from_pdf(file_path)
+    elif file_path.endswith('.docx'):
+        document_text = extract_text_from_docx(file_path)
     else:
-        print("Job post details not found on the webpage.")
-        return None
-    return job_post_text
+        result_text.delete(1.0, tk.END)
+        result_text.insert(tk.END, "Unsupported file format. Please select a PDF or DOCX file.")
+        return
 
-def match_keywords_with_job_post(keywords, job_post):
-    matched_keywords = [keyword for keyword in keywords if keyword in job_post.lower()]
-    return matched_keywords
+    matched_words = match_words(job_description_text.get(1.0, tk.END), document_text)
+    result_text.delete(1.0, tk.END)
+    result_text.insert(tk.END, "Matched words:\n")
+    for word, count in matched_words.items():
+        result_text.insert(tk.END, f"{word}: {count}\n")
 
-if __name__ == "__main__":
-    resume_path = 'resume.pdf'
-    job_post_url = 'https://www.linkedin.com/jobs/view/3760325640'
-    
-    # Extract text from resume
-    resume_text = extract_text_from_pdf(resume_path)
-    resume_keywords = extract_keywords(resume_text)
-    
-    # Fetch job post text from URL
-    job_post_text = fetch_text_from_url(job_post_url)
-    
-    # Match keywords with job post
-    matched_keywords = match_keywords_with_job_post(resume_keywords, job_post_text)
-    
-    # Display results
-    print("Resume Keywords:", resume_keywords)
-    print("\nJob Post Text:")
-    print(job_post_text)
-    print("\nMatched Keywords with Job Post:", matched_keywords)
+# Create the main window
+root = tk.Tk()
+root.title("Job Match Analyzer")
+
+# Create and arrange widgets
+label1 = tk.Label(root, text="Select a PDF or DOCX file:")
+label1.pack()
+
+entry = tk.Entry(root, width=50)
+entry.pack()
+
+browse_button = tk.Button(root, text="Browse", command=browse_file)
+browse_button.pack()
+
+label2 = tk.Label(root, text="Paste the job description here:")
+label2.pack()
+
+job_description_text = tk.Text(root, height=10, width=50)
+job_description_text.pack()
+
+analyze_button = tk.Button(root, text="Analyze Document", command=analyze_document)
+analyze_button.pack()
+
+result_text = tk.Text(root, height=20, width=50)
+result_text.pack()
+
+# Start the GUI event loop
+root.mainloop()
